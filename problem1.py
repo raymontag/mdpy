@@ -1,23 +1,26 @@
 import pygame
 import random
 import math
+import pylab as P
+from matplotlib.backends.backend_pdf import PdfPages
 
 WHITE = (255, 255, 255)
 BLUE =  (  0,   0, 255)
 GREEN = (  0, 255,   0)
 RED =   (255,   0,   0)
 
-N = 20
-RADIUS = 30
-MAX_VELOCITY = 5
-DT = 3
+N = 150
+RADIUS = 5
+MAX_VELOCITY = 2
+DT = 1
 X_DIRECTION = 0
 Y_DIRECTION = 1
 WALL_COLLISION = -1
 
-SCREEN_SIZE = 800
-CPU_TICKS = 100
+SCREEN_SIZE = 1000
+CPU_TICKS = 500
 INFINITY = 99999999999
+WRITE_PDF = False
 
 def dot(a, b):
     return sum(i*j for i,j in zip(a,b))
@@ -52,19 +55,29 @@ class Simulation(object):
         self.init_wall_collides()
         self.init_particle_collides()
 
+        self.velocity_dist = open("velo.dat", "w")
+        if WRITE_PDF:
+            self.pp = PdfPages("velo_dist.pdf")
+
     def run(self):
         collide = True
         t = 0
+        v_dist_border = 0
 
-        while True:
-            #self.print_velocities()
-            print(t)
-            if collide:
-                self.find_collision_times()
-                next_collide = min(self.collision_times)
-                particle = self.collision_times.index(next_collide)
-                collide = False
-                # if next_collide < t:
+        try:
+            while True:
+                if t >= v_dist_border and WRITE_PDF:
+                    self.write_velocities()
+                    v_dist_border += 50
+
+                #self.print_velocities()
+                #print(t)
+                if collide:
+                    self.find_collision_times()
+                    next_collide = min(self.collision_times)
+                    particle = self.collision_times.index(next_collide)
+                    collide = False
+                    # if next_collide < t:
                     # print("nc: "+str(next_collide))
                     # print("t: "+str(t))
                     # print(self.velocities)
@@ -74,62 +87,91 @@ class Simulation(object):
                     # print(self.collision_times)
                     # print(self.collision_form)
 
-            self.clock.tick(CPU_TICKS)
-            self.screen.fill(WHITE)
+                self.clock.tick(CPU_TICKS)
+                self.screen.fill(WHITE)
 
-            for i in self.coordinates:
-                pygame.draw.circle(self.screen, BLUE, [int(round(j)) for j in i], RADIUS)
+                for i in self.coordinates:
+                    pygame.draw.circle(self.screen, BLUE, [int(round(j)) for j in i], RADIUS)
 
-            pygame.display.flip()
+                pygame.display.flip()
 
-            if abs(next_collide - t) <= DT:
-                self.do_tick(abs(next_collide - t))
+                if abs(next_collide - t) <= DT:
+                    self.do_tick(abs(next_collide - t))
 
-                if self.collision_form[particle][0] == WALL_COLLISION:
-                    direction = self.collision_form[particle][1]
-                    vx = self.velocities[particle][0]
-                    vy = self.velocities[particle][1]
+                    if self.collision_form[particle][0] == WALL_COLLISION:
+                        direction = self.collision_form[particle][1]
+                        vx = self.velocities[particle][0]
+                        vy = self.velocities[particle][1]
 
-                    if direction == X_DIRECTION:
-                        self.velocities[particle] = [-vx, vy]
-                    if direction == Y_DIRECTION:
-                        self.velocities[particle] = [vx, -vy]
+                        if direction == X_DIRECTION:
+                            self.velocities[particle] = [-vx, vy]
+                        if direction == Y_DIRECTION:
+                            self.velocities[particle] = [vx, -vy]
 
-                    self.calc_new_wall_collides(particle, t, direction)
-                    self.calc_new_particle_collides(t, particle)
+                        self.calc_new_wall_collides(particle, t, direction)
+                        self.calc_new_particle_collides(t, particle)
+                    else:
+                        other_particle = self.collision_form[particle][0]
+
+                        r12 = vec_minus(self.coordinates[particle], self.coordinates[other_particle])
+
+                        v1 = self.velocities[particle]
+                        v1p = rescale(r12, dot(v1, r12)/dot(r12, r12))
+                        v1s = vec_minus(v1, v1p)
+
+                        v2 = self.velocities[other_particle]
+                        v2p = rescale(r12, dot(v2, r12)/dot(r12, r12))
+                        v2s = vec_minus(v2, v2p)
+
+                        v1pnew = v2p
+                        v2pnew = v1p
+                        v1new = vec_plus(v1pnew, v1s)
+                        v2new = vec_plus(v2pnew, v2s)
+
+                        self.velocities[particle] = v1new
+                        self.velocities[other_particle] = v2new
+
+                        self.calc_new_wall_collides(particle, t)
+                        self.calc_new_wall_collides(other_particle, t)
+                        self.calc_new_particle_collides(t, particle, other_particle)
+
+                    collide = True
+                    t += abs(next_collide - t)
                 else:
-                    other_particle = self.collision_form[particle][0]
+                    self.do_tick()
+                    t += DT
+        except KeyboardInterrupt:
+            if WRITE_PDF:
+                self.pp.close()
 
-                    r12 = vec_minus(self.coordinates[particle], self.coordinates[other_particle])
+    def write_velocities(self):
+        # abs_velocity = []
+        # data = []
 
-                    v1 = self.velocities[particle]
-                    v1p = rescale(r12, dot(v1, r12)/dot(r12, r12))
-                    v1s = vec_minus(v1, v1p)
+        # for i in self.velocities:
+        #     abs_velocity.append(dot(i, i))
 
-                    v2 = self.velocities[other_particle]
-                    v2p = rescale(r12, dot(v2, r12)/dot(r12, r12))
-                    v2s = vec_minus(v2, v2p)
+        # for i in range(0, 60, 5):
+        #     counter = 0
+        #     abs_velocity_copy = []
+        #     for j in abs_velocity:
+        #         if j <= i/6:
+        #             counter += 1
+        #         else:
+        #             abs_velocity_copy.append(j)
+        #     abs_velocity = abs_velocity_copy[:]
+        #     data.append(counter)
 
-                    v1pnew = v2p
-                    v2pnew = v1p
-                    v1new = vec_plus(v1pnew, v1s)
-                    v2new = vec_plus(v2pnew, v2s)
+        for i in self.velocities:
+            self.velocity_dist.write(str(dot(i, i))+ " ")
+        self.velocity_dist.write("\n")
 
-                    self.velocities[particle] = v1new
-                    self.velocities[other_particle] = v2new
-
-                    self.calc_new_wall_collides(particle, t)
-                    self.calc_new_wall_collides(other_particle, t)
-                    self.calc_new_particle_collides(t, particle, other_particle)
-
-                collide = True
-                t += abs(next_collide - t)
-            else:
-                self.do_tick()
-                t += DT
-
-    def print_velocities(self):
-        print(sum([math.sqrt(dot(v,v)) for v in self.velocities]))
+        P.xlabel("velocity v")
+        P.ylabel("Propability P")
+        P.title("Velocity distribution")
+        n, bins, patches = P.hist(P.array([dot(i, i) for i in self.velocities]), [i/3. for i in range(30)], normed=1, histtype="bar")
+        self.pp.savefig()
+        P.figure()
 
     def do_tick(self, dt = DT):
         for i in range(len(self.coordinates)):
@@ -149,8 +191,21 @@ class Simulation(object):
             except:
                 continue
 
-            vx = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
-            vy = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
+            direction = random.randint(0, 3)
+            if direction == 0:
+                vx = MAX_VELOCITY
+                vy = 0
+            elif direction == 1:
+                vx = 0
+                vy = MAX_VELOCITY
+            elif direction == 2:
+                vx = -MAX_VELOCITY
+                vy = 0
+            elif direction == 3:
+                vx = 0
+                vy = -MAX_VELOCITY
+            # vx = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
+            # vy = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
 
             self.coordinates.append([x, y])
             self.velocities.append([vx, vy])
