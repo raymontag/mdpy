@@ -3,24 +3,28 @@ import random
 import math
 import pylab as P
 from matplotlib.backends.backend_pdf import PdfPages
+from scipy.optimize import curve_fit
 
 WHITE = (255, 255, 255)
 BLUE =  (  0,   0, 255)
 GREEN = (  0, 255,   0)
 RED =   (255,   0,   0)
 
-N = 150
+N = 100
 RADIUS = 5
 MAX_VELOCITY = 2
 DT = 1
 X_DIRECTION = 0
 Y_DIRECTION = 1
 WALL_COLLISION = -1
+EQUILIBRIUM = True
 
-SCREEN_SIZE = 1000
+SCREEN_SIZE = 800
 CPU_TICKS = 500
 INFINITY = 99999999999
 WRITE_PDF = False
+PRESSURE = False
+PRESSURE_LENGTH = 1000
 
 def dot(a, b):
     return sum(i*j for i,j in zip(a,b))
@@ -36,6 +40,9 @@ def norm(a):
 
 def rescale(a, r):
     return [r*i for i in a]
+
+def fit(x, a, b):
+    return a*x+b
 
 class Simulation(object):
     def __init__(self):
@@ -55,20 +62,55 @@ class Simulation(object):
         self.init_wall_collides()
         self.init_particle_collides()
 
-        self.velocity_dist = open("velo.dat", "w")
         if WRITE_PDF:
+            self.velocity_dist = open("velo.dat", "w")
             self.pp = PdfPages("velo_dist.pdf")
+        elif PRESSURE:
+            self.temp_points = []
+            self.pressure_points = []
+            self.pressure_dat = open("pressure.dat", "w")
+
+    def reset(self):
+        self.coordinates = []
+        self.velocities = []
+        self.wall_collides = []
+        self.particle_collides = []
+        self.collision_times = []
+        self.collision_form = []
+
+        self.init_disks()
+        self.init_wall_collides()
+        self.init_particle_collides()
 
     def run(self):
+        if PRESSURE:
+            for i in range(3):                
+                print(i)
+                self.do_simulation(PRESSURE_LENGTH)
+                global MAX_VELOCITY
+                MAX_VELOCITY += 1
+                self.reset()
+            self.write_pressure_graph()
+            self.pressure_dat.close()
+        else:
+            self.do_simulation()
+    
+    def do_simulation(self, length = INFINITY):
         collide = True
         t = 0
-        v_dist_border = 0
+        v_dist_interval = 0
+        pressure_dat_interval = 0
+        pressure_per_interval = 10
+        pressure_dat = []
 
         try:
-            while True:
-                if t >= v_dist_border and WRITE_PDF:
+            while t < length:
+                if t >= v_dist_interval and WRITE_PDF:
                     self.write_velocities()
-                    v_dist_border += 50
+                    v_dist_interval += 50
+                elif t >= pressure_dat_interval and PRESSURE:
+                    pressure_dat.append(pressure_per_interval)
+                    pressure_dat_interval += 10
 
                 #self.print_velocities()
                 #print(t)
@@ -105,8 +147,12 @@ class Simulation(object):
 
                         if direction == X_DIRECTION:
                             self.velocities[particle] = [-vx, vy]
-                        if direction == Y_DIRECTION:
+                            if PRESSURE:
+                                pressure_per_interval += abs(vx)/SCREEN_SIZE
+                        elif direction == Y_DIRECTION:
                             self.velocities[particle] = [vx, -vy]
+                            if PRESSURE:
+                                pressure_per_interval += abs(vy)/SCREEN_SIZE
 
                         self.calc_new_wall_collides(particle, t, direction)
                         self.calc_new_particle_collides(t, particle)
@@ -141,8 +187,16 @@ class Simulation(object):
                     self.do_tick()
                     t += DT
         except KeyboardInterrupt:
-            if WRITE_PDF:
-                self.pp.close()
+            pass
+        if WRITE_PDF:
+            self.pp.close()
+            self.velocity_dist.close()
+        elif PRESSURE:
+            T = sum(dot(i, i) for i in self.velocities)/N
+            pressure = sum(i for i in pressure_dat)/len(pressure_dat)
+            self.temp_points.append(T)
+            self.pressure_points.append(pressure)
+            self.pressure_dat.write(str(T)+" "+str(pressure)+"\n")
 
     def write_velocities(self):
         # abs_velocity = []
@@ -173,6 +227,32 @@ class Simulation(object):
         self.pp.savefig()
         P.figure()
 
+    def write_pressure_graph(self):
+        P.xlabel("Temperature")
+        P.ylabel("Pressure")
+        P.title("Pressure per Temperature")
+        P.axis([0.0,self.temp_points[-1]+10., 0.0,self.pressure_points[-1]+1])
+        ax = P.gca()
+        ax.set_autoscale_on(False)
+
+        popt,pcov = curve_fit(fit,self.temp_points,self.pressure_points)
+        y_fit = [popt[0]*x+popt[1] for x in self.temp_points]
+        y_fit.insert(0, popt[1])
+        fit_x_points = self.temp_points[:]
+        fit_x_points.insert(0,0.)
+
+        pp = PdfPages(str(SCREEN_SIZE)+"_"+str(N)+".pdf")
+        P.plot(self.temp_points, self.pressure_points, "o", fit_x_points, y_fit, "--")
+        #P.savefig()
+        #P.plot(
+        #pp.savefig()
+        #print(self.pressure_points)
+        #print(y_fit)
+        #print(fit_x_points)
+        #print(y_fit)
+        pp.savefig()
+        pp.close()
+
     def do_tick(self, dt = DT):
         for i in range(len(self.coordinates)):
             self.coordinates[i][0] += dt * self.velocities[i][0]
@@ -191,21 +271,27 @@ class Simulation(object):
             except:
                 continue
 
-            direction = random.randint(0, 3)
-            if direction == 0:
-                vx = MAX_VELOCITY
-                vy = 0
-            elif direction == 1:
-                vx = 0
-                vy = MAX_VELOCITY
-            elif direction == 2:
-                vx = -MAX_VELOCITY
-                vy = 0
-            elif direction == 3:
-                vx = 0
-                vy = -MAX_VELOCITY
-            # vx = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
-            # vy = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
+            if EQUILIBRIUM:
+                a = random.random()
+                b = random.random()
+                vx = MAX_VELOCITY*math.sqrt(-2*math.log(1-a))*math.cos(2*math.pi*b)
+                vy = MAX_VELOCITY*math.sqrt(-2*math.log(1-a))*math.sin(2*math.pi*b)
+            else:
+                direction = random.randint(0, 3)
+                if direction == 0:
+                    vx = MAX_VELOCITY
+                    vy = 0
+                elif direction == 1:
+                    vx = 0
+                    vy = MAX_VELOCITY
+                elif direction == 2:
+                    vx = -MAX_VELOCITY
+                    vy = 0
+                elif direction == 3:
+                    vx = 0
+                    vy = -MAX_VELOCITY
+                    # vx = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
+                    # vy = random.randint(-MAX_VELOCITY, MAX_VELOCITY)
 
             self.coordinates.append([x, y])
             self.velocities.append([vx, vy])

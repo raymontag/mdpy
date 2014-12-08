@@ -1,0 +1,212 @@
+from visual import *
+from random import uniform, randint
+from math import sqrt, exp
+from time import sleep
+import numpy as np
+
+# ANGSTROM = 10**(-10)
+ANGSTROM = 1
+ANGSTROM_SCALE = 10e10
+#ANGSTROM_SCALE = 1
+
+# UNIT = 1.6 * 10**-27
+UNIT = 1
+# UNIT_SCALE = (1./1.6)* 10**27
+UNIT_SCALE = 1
+
+
+WALL_SIZE = 12 * ANGSTROM
+RC = WALL_SIZE/4
+RADIUS =  1 * ANGSTROM # [100 pm]
+MAX_VELOCITY = 1 * ANGSTROM
+RATE = 5000
+
+N = 2
+T = 1.
+DT = 0.005
+M = 40 * UNIT
+
+kB = 1
+# kB = 1
+# EPSILON = 119.8 * kB # [K]
+SIGMA =  2 * ANGSTROM # [100 pm]
+EPSILON = 1
+# SIGMA = 1
+
+
+def dot(a, b):
+    return sum(i*j for i,j in zip(a,b))
+
+def vec_minus(a, b):
+    return [i-j for i,j in zip(a,b)]
+
+def vec_plus(a, b):
+    return [i+j for i,j in zip(a,b)]
+
+def norm(a):
+    return sqrt(sum(i**2 for i in a))
+
+def rescale(a, r):
+    return [r*i for i in a]
+
+def fit(x, a, b):
+    return a*x+b
+
+# Lennard-Jones-potential
+def ljpot(r):
+    #if r > RC:
+    #    return 0
+    return EPSILON * ((SIGMA / r)**12 - (SIGMA / r)**6)
+
+class System(object):
+    def __init__(self):
+        self.balls = []
+
+        system = "liquid"
+        if system == "gas":
+            i = 0
+            while i < N:
+                x = uniform(0, WALL_SIZE)
+                y = uniform(0, WALL_SIZE)
+                z = uniform(0, WALL_SIZE)
+
+                try:
+                    for j in self.balls:
+                        if norm(vec_minus([x, y, z], j.pos)) <= 2*RADIUS:
+                            raise Exception
+                except:
+                    continue
+                else:
+                    self.balls.append(sphere(pos=(x,y,z), radius=RADIUS, color=color.red))
+                    i += 1
+        elif system == "liquid":
+            for x in range(2, 12, 4):
+                for y in range(2, 12, 4):
+                    for z in range(2, 12, 4):
+                        self.balls.append(sphere(pos=(x,y,z), radius=RADIUS, color=color.red))
+
+
+class Simulation(object):
+    def __init__(self):
+        self.scene = display(title='Lennard-Jones-MC',
+                             x=0, y=0, width=300, height=300,
+                             center=(WALL_SIZE/2,WALL_SIZE/2,WALL_SIZE/2),
+                             background=(0,0,0), fullscreen = False)
+
+        self.walls = []
+        self.walls.append(box(pos=(WALL_SIZE/2,WALL_SIZE/2,-1), length=WALL_SIZE,
+                              height=WALL_SIZE, width=2 * ANGSTROM, opacity=0.1))
+        self.walls.append(box(pos=(WALL_SIZE/2,-1,WALL_SIZE/2), length=WALL_SIZE,
+                              height=2 * ANGSTROM, width=WALL_SIZE, opacity=0.1))
+        self.walls.append(box(pos=(-1,WALL_SIZE/2,WALL_SIZE/2), length=2 * ANGSTROM,
+                              height=WALL_SIZE, width=WALL_SIZE, opacity=0.1))
+        self.walls.append(box(pos=(WALL_SIZE/2,WALL_SIZE/2,WALL_SIZE+1), length=WALL_SIZE,
+                              height=WALL_SIZE, width=2 * ANGSTROM, opacity=0.1))
+        self.walls.append(box(pos=(WALL_SIZE/2,WALL_SIZE+1,WALL_SIZE/2), length=WALL_SIZE,
+                              height=2 * ANGSTROM, width=WALL_SIZE, opacity=0.1))
+        self.walls.append(box(pos=(WALL_SIZE+1,WALL_SIZE/2,WALL_SIZE/2), length=2 * ANGSTROM,
+                              height=WALL_SIZE, width=WALL_SIZE, opacity=0.1))
+
+        self.system = System()
+        self.old_system = []
+        sleep(2)
+        self.init_verlet()
+
+    def run(self):
+        while True:
+            rate(RATE)
+            self.do_verlet()
+
+    def F(self, i):
+        F = [0,0,0]
+        j = 0
+        while j < len(self.system.balls):
+            if i == j:
+                j += 1
+                continue
+            rij = vec_minus(self.system.balls[i].pos, self.system.balls[j].pos)
+            r = norm(rij)
+            lj = ljpot(r)
+            F = vec_plus(F, rescale(rij, 12 * lj / r**2))
+            j += 1
+        return F
+
+    def init_verlet(self):
+        init_v = []
+        for i in self.system.balls:
+            x = uniform(-MAX_VELOCITY, MAX_VELOCITY)
+            y = uniform(-sqrt(MAX_VELOCITY**2 - x**2), sqrt(MAX_VELOCITY**2 - x**2))
+            if randint(0, 1) == 0:
+                z = -sqrt(MAX_VELOCITY**2 - x**2 - y**2)
+            else: 
+                z = sqrt(MAX_VELOCITY**2 - x**2 - y**2)
+            init_v.append([x,y,z])
+
+        i = 0
+        new_system = []
+        while i < len(self.system.balls):
+            self.old_system.append(np.copy(self.system.balls[i].pos))
+            new_system.append(vec_plus(vec_plus(self.system.balls[i].pos, rescale(init_v[i], DT)), rescale(self.F(i), DT**2 / (2*M))))
+            i += 1
+
+        i = 0
+        while i < len(self.system.balls):
+            self.system.balls[i].pos.x = new_system[i][0]
+            self.system.balls[i].pos.y = new_system[i][1]
+            self.system.balls[i].pos.z = new_system[i][2]
+            i += 1
+
+    def do_verlet(self):
+        new_system = []
+        i = 0
+        while i < len(self.system.balls):
+            new_system.append(vec_plus(vec_minus(rescale(self.system.balls[i].pos, 2), np.copy(self.old_system[i])), rescale(self.F(i), DT**2 / M)))
+            i += 1
+
+        test = 0
+        old_system_copy = self.old_system[:]
+
+        self.old_system = []
+        i = 0
+        while i < len(self.system.balls):
+            if new_system[i][0] < 0:
+                new_system[i][0] += WALL_SIZE
+                self.system.balls[i].pos.x += WALL_SIZE
+                # self.system.balls[i].pos.x %= WALL_SIZE
+            elif new_system[i][0] > WALL_SIZE:
+                new_system[i][0] -= WALL_SIZE
+                self.system.balls[i].pos.x -= WALL_SIZE
+                # self.system.balls[i].pos.x %= WALL_SIZE
+
+            if new_system[i][1] < 0:
+                new_system[i][1] += WALL_SIZE
+                self.system.balls[i].pos.y += WALL_SIZE
+                # self.system.balls[i].pos.y %= WALL_SIZE
+            elif new_system[i][1] > WALL_SIZE:
+                new_system[i][1] -= WALL_SIZE
+                self.system.balls[i].pos.y -= WALL_SIZE
+                # self.system.balls[i].pos.y %= WALL_SIZE
+
+            if new_system[i][2] < 0:
+                new_system[i][2] += WALL_SIZE
+                self.system.balls[i].pos.z += WALL_SIZE
+                # self.system.balls[i].pos.z %= WALL_SIZE
+            elif new_system[i][2] > WALL_SIZE:
+                new_system[i][2] -= WALL_SIZE
+                self.system.balls[i].pos.z -= WALL_SIZE
+                # self.system.balls[i].pos.z %= WALL_SIZE
+
+            # Print velocity for test
+            test += (norm(vec_minus(new_system[i], old_system_copy[i])) / (2 * DT))**2
+
+            self.old_system.append(np.copy(self.system.balls[i].pos))
+            self.system.balls[i].pos.x = new_system[i][0]
+            self.system.balls[i].pos.y = new_system[i][1]
+            self.system.balls[i].pos.z = new_system[i][2]
+            i += 1
+
+        print(test)
+    
+if __name__ == "__main__":
+    simulation = Simulation()
+    simulation.run()

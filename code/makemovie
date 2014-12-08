@@ -1,0 +1,10 @@
+makeframes.p $1
+for f in frame-*.ps 
+do
+	echo "converting $f" 
+	convert -density 196 -quality 100 $f -trim -resample 72 `basename $f .ps`.jpg 
+	rm -fr $f
+done 
+echo "making movie"
+ffmpeg -r 25 -aspect 1:1 -i frame-%04d.jpg $1.mp4
+rm -fr frame-*.jpg

@@ -1,0 +1,32 @@
+                                                                                       
+def init_particle_collides(self):
+    for i in range(len(self.coordinates)):
+        times = []
+
+        r1 = self.coordinates[i]
+        v1 = self.velocities[i]
+        for j in range(i):
+            if i == j:
+                times.append(INFINITY)
+                continue
+                times.append(self.particle_collides[i-1][j])
+                for j in range(i, len(self.coordinates)):
+                    if i == j:
+                        times.append(INFINITY)
+                        continue
+                        r2 = self.coordinates[j]
+                        v2 = self.velocities[j]
+                        r12 = vec_minus(r1, r2)
+                        v12 = vec_minus(v1, v2)
+                        
+                        d = (dot(r12, v12)**2 - dot(v12, v12) * (dot(r12, r12) - 4 * RADIUS**2))
+                        if d > 0:
+                            t = (-dot(r12, v12)-math.sqrt(d))/dot(v12, v12)
+                            if t > 0:
+                                times.append(t)
+                            else:
+                                times.append(INFINITY)
+                        else:
+                            times.append(INFINITY)
+                        
+                        self.particle_collides.append(times)

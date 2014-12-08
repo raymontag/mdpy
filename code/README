@@ -1,0 +1,35 @@
+Installation
+------------
+
+Simple method (quadratic method)
+
+>	make hcmd    
+
+Fast method (linear method)
+
+>	make fhcmd 
+
+
+The fast version yields slightly different results from the simple one.
+This should be checked again and fixed as soon as possible.
+
+
+Utilization
+-----------
+
+>	hcmd > output_file_name
+
+
+
+Making PostScript movies
+------------------------
+
+>	makemovie.p output_file_name
+
+
+The result is saved in the video file "output_file_name.mp4" 
+
+
+
+
+
